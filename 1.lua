@@ -2,8 +2,13 @@ _G._GAME_SECRET = _G._GAME_SECRET or "12345678"
 _G._LICENSE_OK = true
 _G._BYPASS_LOADED = _G._BYPASS_LOADED or false
 -- ==============================================================================
--- ==================== [جديد] نظام الترخيص والأكواد (VIP License) =============
+-- ============================ BẮT ĐẦU FULL LOGIC MOD ==========================
 -- ==============================================================================
+
+-- ==============================================================================
+-- ==================== نظام الترخيص والأكواد (VIP License) =====================
+-- ==============================================================================
+
 local function _VIPLicense_Init()
     local licenseScope
     local VIPLicenseConfig = {
@@ -12,12 +17,15 @@ local function _VIPLicense_Init()
         secret = 'Vm8Lk7Uj2JmsjCPVPVjrLa7zgfx3uz5E',
         validKeys = {
             "VIP-DEMO-0001",
-            { key = "1M-KEY-VIP", expires = "2026-11-30 23:59:59" },
-            { key = "2M-KEY-VIP2", expires = "2026-11-29 23:59:59" },
+            { key = "1V-KEY-VIP", expires = "2026-11-30 23:59:59" },
+            { key = "2V-KEY-VIP2", expires = "2026-11-29 23:59:59" },
             -- أضف مفاتيحك هنا
         },
     }
 
+    -- ============================================================================
+    -- 1) VIPLicenseCore : خوارزمية MD5 + إدارة الجلسة + التحقق من الأكواد
+    -- ============================================================================
     local VIPLicenseCore = (function()
         local Primitives = (function()
             local floor, abs, max = math.floor, math.abs, math.max
@@ -64,6 +72,7 @@ local function _VIPLicense_Init()
             }
             local SHIFT = {7,12,17,22,5,9,14,20,4,11,16,23,6,10,15,21}
             local function md5_raw(input)
+                assert(type(input) == "string", "MD5 input must be a string")
                 local size = #input
                 local message = input .. char(128) .. string.rep(char(0), (55 - size) % 64)
                     .. little32((size * 8) % U32) .. little32(floor(size / 536870912))
@@ -77,50 +86,111 @@ local function _VIPLicense_Init()
                     local a, b, c, d = h0, h1, h2, h3
                     for i = 0, 63 do
                         local f, g, shiftBase
-                        if i < 16 then f, g, shiftBase = band(b, c) + band(U32 - 1 - b, d), i, 0
-                        elseif i < 32 then f, g, shiftBase = band(d, b) + band(U32 - 1 - d, c), (5 * i + 1) % 16, 4
-                        elseif i < 48 then f, g, shiftBase = bxor(bxor(b, c), d), (3 * i + 5) % 16, 8
-                        else f, g, shiftBase = bxor(c, U32 - 1 - band(U32 - 1 - b, d)), (7 * i) % 16, 12 end
-                        local nextB = (b + rol((a + f + K[i + 1] + words[g]) % U32, SHIFT[shiftBase + i % 4 + 1])) % U32
+                        if i < 16 then
+                            f, g, shiftBase = band(b, c) + band(U32 - 1 - b, d), i, 0
+                        elseif i < 32 then
+                            f, g, shiftBase = band(d, b) + band(U32 - 1 - d, c), (5 * i + 1) % 16, 4
+                        elseif i < 48 then
+                            f, g, shiftBase = bxor(bxor(b, c), d), (3 * i + 5) % 16, 8
+                        else
+                            local bOrNotD = U32 - 1 - band(U32 - 1 - b, d)
+                            f, g, shiftBase = bxor(c, bOrNotD), (7 * i) % 16, 12
+                        end
+                        local nextB = (b + rol((a + f + K[i + 1] + words[g]) % U32,
+                            SHIFT[shiftBase + i % 4 + 1])) % U32
                         a, b, c, d = d, nextB, b, c
                     end
                     h0, h1, h2, h3 = (h0 + a) % U32, (h1 + b) % U32, (h2 + c) % U32, (h3 + d) % U32
                 end
                 return little32(h0) .. little32(h1) .. little32(h2) .. little32(h3)
             end
-            local function hex(input) return (input:gsub(".", function(c) return format("%02x", byte(c)) end)) end
+            local function hex(input)
+                return (input:gsub(".", function(c) return format("%02x", byte(c)) end))
+            end
             local function md5(input) return hex(md5_raw(input)) end
+            local function form_encode(input)
+                assert(type(input) == "string", "Form value must be a string")
+                return (input:gsub("[^A-Za-z0-9%-%._~ ]", function(c)
+                    return format("%%%02X", byte(c)) end):gsub(" ", "+"))
+            end
+            local function constant_time_equal(a, b)
+                if type(a) ~= "string" or type(b) ~= "string" then return false end
+                local difference = abs(#a - #b)
+                for i = 1, max(#a, #b) do
+                    difference = difference + abs((byte(a, i) or 0) - (byte(b, i) or 0))
+                end
+                return difference == 0
+            end
             local function name_uuid(input)
                 local digest = md5_raw(input)
-                local h = hex(digest:sub(1,6) .. char(byte(digest,7) % 16 + 48) .. digest:sub(8,8) .. char(byte(digest,9) % 64 + 128) .. digest:sub(10))
-                return h:sub(1,8) .. "-" .. h:sub(9,12) .. "-" .. h:sub(13,16) .. "-" .. h:sub(17,20) .. "-" .. h:sub(21,32)
+                local h = hex(digest:sub(1,6) .. char(byte(digest,7) % 16 + 48)
+                    .. digest:sub(8,8) .. char(byte(digest,9) % 64 + 128) .. digest:sub(10))
+                return h:sub(1,8) .. "-" .. h:sub(9,12) .. "-" .. h:sub(13,16)
+                    .. "-" .. h:sub(17,20) .. "-" .. h:sub(21,32)
             end
-            return {md5 = md5, md5_raw = md5_raw, name_uuid = name_uuid}
+            return {md5 = md5, md5_raw = md5_raw, form_encode = form_encode,
+                    constant_time_equal = constant_time_equal, name_uuid = name_uuid}
         end)()
 
+        local SESSION_KEY = '__LunarLicenseSessionV7'
+        local function loadSession()
+            local t = rawget(_G, SESSION_KEY)
+            if type(t) == 'table' and t.authorized == true and t.scope == licenseScope then return t end
+        end
+        local function saveSession(expiresAt)
+            _G[SESSION_KEY] = {authorized = true, expiresAt = expiresAt, scope = licenseScope}
+        end
+        local function clearSession() _G[SESSION_KEY] = nil end
+
         local CreateLocalExpiry = function(cfg)
-            local E, blockedMessage, blockedPhase = {}, nil, nil
+            local E = {}
+            local expiredText = 'Mod expired. Contact VIP Server for renewal.'
+            local tamperText  = "Don't be over smart"
+            local blockedMessage, blockedPhase
+            local function finite(n) return type(n) == 'number' and n == n and n ~= math.huge and n ~= -math.huge end
             local function parse(text)
                 if type(text) ~= 'string' then return nil end
                 local y,m,d,h,n,s = text:match('^(%d%d%d%d)%-(%d%d)%-(%d%d) (%d%d):(%d%d):(%d%d)$')
                 y,m,d,h,n,s = tonumber(y),tonumber(m),tonumber(d),tonumber(h),tonumber(n),tonumber(s)
-                if not y or not m or not d or not h or not n or not s then return nil end
-                return os.time({year=y, month=m, day=d, hour=h, min=n, sec=s})
+                if not y or not m or not d or not h or not n or not s or y < 1970 or y > 9999 or m < 1 or m > 12 or h > 23 or n > 59 or s > 59 then return nil end
+                local leap = y % 4 == 0 and (y % 100 ~= 0 or y % 400 == 0)
+                local months = {31, leap and 29 or 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31}
+                if d < 1 or d > months[m] then return nil end
+                local prior = y - 1
+                local days = 365 * (y - 1970) + math.floor(prior / 4) - math.floor(1969 / 4)
+                    - math.floor(prior / 100) + math.floor(1969 / 100)
+                    + math.floor(prior / 400) - math.floor(1969 / 400)
+                for i = 1, m - 1 do days = days + months[i] end
+                return (days + d - 1) * 86400 + h * 3600 + n * 60 + s - 6 * 3600
             end
             local expiry = cfg.manualExpiry and parse(cfg.manualExpiry) or nil
-            local function block(message, phase) if not blockedMessage then blockedMessage, blockedPhase = message, phase end return false, blockedMessage, blockedPhase end
+            if cfg.manualExpiry and not expiry then
+                blockedMessage, blockedPhase = 'Invalid local expiry date. Use YYYY-MM-DD HH:MM:SS.', 'error'
+            end
+            local function block(message, phase)
+                if not blockedMessage then blockedMessage, blockedPhase = message, phase end
+                return false, blockedMessage, blockedPhase
+            end
             function E.Status() return not blockedMessage, blockedMessage, blockedPhase end
-            function E.MarkTampered() return block("Don't be over smart", 'tampered') end
+            function E.MarkTampered() return block(tamperText, 'tampered') end
+            function E.GetExpiry() return expiry end
             function E.Accept(now, keyExpiry)
                 if blockedMessage then return E.Status() end
+                if not finite(now) or now < 0 then
+                    return block('Clock verification unavailable.', 'error')
+                end
                 local effective = expiry
-                if keyExpiry then if not effective or keyExpiry < effective then effective = keyExpiry end end
-                if effective and now >= effective then return false, 'Mod expired.', 'expired' end
+                if keyExpiry then
+                    if not effective or keyExpiry < effective then effective = keyExpiry end
+                end
+                if effective and now >= effective then return false, expiredText, 'expired' end
                 return true
             end
             function E.GetEffectiveExpiry(keyExpiry)
                 local effective = expiry
-                if keyExpiry then if not effective or keyExpiry < effective then effective = keyExpiry end end
+                if keyExpiry then
+                    if not effective or keyExpiry < effective then effective = keyExpiry end
+                end
                 return effective
             end
             function E.Parse(t) return parse(t) end
@@ -129,55 +199,218 @@ local function _VIPLicense_Init()
 
         local CreateAuth = function(P, cfg, deps)
             local A = {}
-            local allowed, expiresAt, localExpiry = false, nil, deps.localExpiry
-            local keyIndex = {}
-            for _, entry in ipairs(cfg.validKeys or {}) do
-                if type(entry) == "string" then keyIndex[entry] = {expires = nil}
-                elseif type(entry) == "table" then keyIndex[entry.key] = {expires = localExpiry and localExpiry.Parse(entry.expires) or nil} end
+            licenseScope = P.md5(cfg.game .. "\0" .. (cfg.secret or "") .. "\0offlinekeys")
+            local phase, message = 'locked', 'Enter your key to sign in.'
+            local allowed, generation = false, 0
+            local expiresAt
+            local startFn, stopFn, payloadStarted, restartRequired
+            local localExpiry = deps.localExpiry
+            do
+                local stored = loadSession()
+                if stored then
+                    allowed = true; expiresAt = stored.expiresAt
+                    phase, message = 'active', 'Session restored'
+                end
             end
-            function A.Login(key)
-                if allowed then return false end
-                if localExpiry then local ok, text, state = localExpiry.Status() if not ok then return false end end
-                key = key:match('^%s*(.-)%s*$')
-                if #key == 0 then return false end
-                local entry = keyIndex[key]
-                if not entry then return false end
-                local now = os.time()
+            if localExpiry then
+                local ok, text, state = localExpiry.Status()
+                if not ok then message, phase = text, state end
+            end
+            local function readClock()
+                local ok, n = pcall(deps.clock)
+                if ok and type(n) == 'number' and n == n and n >= 0 then return n end
+            end
+            local function notify(text, state)
+                message, phase = text, state
+                if type(deps.status) == 'function' then pcall(deps.status, text, state) end
+            end
+            local function stopPayload()
+                if payloadStarted then
+                    payloadStarted = false
+                    local ok, accepted = pcall(stopFn)
+                    if not ok or accepted == false then restartRequired = true end
+                end
+            end
+            local function revoke(text, state)
+                generation = generation + 1
+                allowed, expiresAt = false, nil
+                stopPayload()
+                local localDenied = false
                 if localExpiry then
-                    local accepted = localExpiry.Accept(now, entry.expires)
-                    if not accepted then return false end
+                    local ok, localText, localPhase = localExpiry.Status()
+                    if not ok then text, state, localDenied = localText, localPhase, true end
+                end
+                notify(restartRequired and not localDenied
+                    and 'Restart required: payload cleanup failed.' or text, state or 'error')
+            end
+            local function startPayload()
+                if payloadStarted or not startFn then return true end
+                payloadStarted = true
+                local before = generation
+                local ok, accepted = pcall(startFn)
+                if not ok or accepted == false then
+                    restartRequired = true
+                    revoke('Restart required: offline script startup failed.', 'error')
+                    return false
+                end
+                return generation == before and allowed
+            end
+
+            local keyIndex = {}
+            do
+                local list = cfg.validKeys or {}
+                for _, entry in ipairs(list) do
+                    local k, exp
+                    if type(entry) == "string" then
+                        k = entry
+                    elseif type(entry) == "table" and type(entry.key) == "string" then
+                        k = entry.key
+                        if entry.expires then
+                            exp = localExpiry and localExpiry.Parse(entry.expires) or nil
+                        end
+                    end
+                    if k and #k > 0 then
+                        keyIndex[k] = {expires = exp}
+                    end
+                end
+            end
+
+            local function verifyKey(key)
+                local entry = keyIndex[key]
+                if not entry then return false, "Invalid key.", nil end
+                return true, nil, entry.expires
+            end
+
+            local function begin(key)
+                if restartRequired then return false end
+                if localExpiry then
+                    local ok, text, state = localExpiry.Status()
+                    if not ok then revoke(text, state); return false end
+                end
+                if type(key) ~= 'string' then key = '' end
+                key = key:match('^%s*(.-)%s*$')
+                if #key == 0 or #key > 512 then
+                    revoke('Enter a valid key.', 'denied'); return false
+                end
+                local now = readClock()
+                if not now then
+                    revoke('Phone clock unavailable. Please try again.', 'error'); return false
+                end
+                local okSerial, serial = pcall(deps.serial, key)
+                if not okSerial or type(serial) ~= 'string' or #serial == 0 or #serial > 512 then
+                    local failure = tostring(serial)
+                    local text = 'Device identifier unavailable.'
+                    if not okSerial and failure:find('DEVICE_CACHE_CONFLICT', 1, true) then
+                        text = 'Saved device records conflict. Restore the registered device backup.'
+                    elseif not okSerial and failure:find('DEVICE_CACHE_RECOVERY_REQUIRED', 1, true) then
+                        text = 'Saved device data could not be recovered. Check storage or restore its backup.'
+                    elseif not okSerial and failure:find('DEVICE_CACHE_SAVE_FAILED', 1, true) then
+                        text = 'Device cache could not be saved. Check game storage access.'
+                    end
+                    revoke(text, 'error'); return false
+                end
+                generation = generation + 1
+                notify('Verifying key...', 'pending')
+                local okV, valid, reason, keyExpiry = pcall(verifyKey, key)
+                if not okV then
+                    revoke('Key verification failed.', 'error'); return false
+                end
+                if not valid then
+                    revoke('Expired: ' .. tostring(reason), 'denied'); return false
+                end
+                if localExpiry then
+                    local accepted, text, state = localExpiry.Accept(now, keyExpiry)
+                    if not accepted then revoke(text, state); return false end
                 end
                 allowed = true
-                expiresAt = localExpiry and localExpiry.GetEffectiveExpiry(entry.expires) or entry.expires
-                _G.__LunarLicenseSession = {authorized = true, expiresAt = expiresAt}
+                expiresAt = localExpiry and localExpiry.GetEffectiveExpiry(keyExpiry) or keyExpiry
+                saveSession(expiresAt)
+                if not startPayload() then return false end
+                notify('Login successful.', 'active')
                 return true
             end
-            function A.IsAuthorized() 
-                if allowed then return true end
-                local session = rawget(_G, '__LunarLicenseSession')
-                if session and session.authorized then allowed = true return true end
-                return false 
+
+            function A.Login(key) if allowed then return false end; return begin(key) end
+            function A.Tick() end
+            function A.IsAuthorized()
+                if allowed and not restartRequired then return true end
+                local stored = loadSession()
+                if stored and not restartRequired then
+                    allowed = true; expiresAt = stored.expiresAt; return true
+                end
+                return false
             end
-            function A.Logout() allowed = false _G.__LunarLicenseSession = nil end
+            function A.Logout() clearSession(); revoke('Expired: signed out.', 'locked') end
+            function A.FailClosed(text, requiresRestart)
+                if requiresRestart == true then restartRequired = true end
+                revoke(text or 'Access unavailable.', 'error')
+            end
+            function A.ReportClockTampering()
+                if localExpiry then localExpiry.MarkTampered() end
+                revoke("Don't be over smart", 'tampered')
+            end
+            function A.Bind(onStart, onStop)
+                if type(onStart) ~= 'function' or type(onStop) ~= 'function' then
+                    return false, 'START_AND_STOP_REQUIRED'
+                end
+                if startFn and (startFn ~= onStart or stopFn ~= onStop) then return false, 'ALREADY_BOUND' end
+                startFn, stopFn = onStart, onStop
+                if A.IsAuthorized() then return startPayload() end
+                return true
+            end
+            function A.Unbind()
+                revoke('Offline script disconnected.', 'locked')
+                startFn, stopFn = nil, nil
+            end
+            function A.GetRemainingSeconds() return nil end
+            function A.GetState()
+                local authorized = A.IsAuthorized()
+                return {
+                    phase = phase, message = message, authorized = authorized,
+                    sessionAuthorized = authorized, expiresAt = expiresAt,
+                    accessPolicy = "offline_whitelist", expiryCheckPolicy = "login_only",
+                    periodicRecheck = false, pending = false,
+                    linked = startFn ~= nil, restartRequired = restartRequired == true,
+                }
+            end
             return A
         end
 
         local Core = {Primitives = Primitives, createExpiry = CreateLocalExpiry}
         function Core.new(config, dependencies)
-            if dependencies.localExpiry == nil then dependencies.localExpiry = CreateLocalExpiry(config) end
-            return CreateAuth(Primitives, config, dependencies)
+            assert(type(config) == 'table' and type(dependencies) == 'table',
+                'License configuration and dependencies required')
+            local deps = {}
+            for key, value in pairs(dependencies) do deps[key] = value end
+            if deps.localExpiry == nil then deps.localExpiry = CreateLocalExpiry(config) end
+            return CreateAuth(Primitives, config, deps)
         end
         return Core
     end)()
 
-    local UI = {Version = "LunarUI.V10"}
-    local function member(o, k) if o == nil then return nil end local ok, v = pcall(function() return o[k] end); if ok then return v end end
-    local function valid(o) if o == nil then return false end local ok, v = pcall(slua.isValid, o); return ok and v == true end
+    -- ============================================================================
+    -- 2) UI.Build : واجهة تسجيل الدخول (نافذة الكود)
+    -- ============================================================================
+    local UI = {Version = "LunarUI.V10.Glass.OfflineKeys.1"}
+    local function member(o, k)
+        if o == nil then return nil end
+        local ok, v = pcall(function() return o[k] end); if ok then return v end
+    end
+    local function valid(o)
+        if o == nil then return false end
+        local ok, v = pcall(slua.isValid, o); return ok and v == true
+    end
     local vectorClass = rawget(_G, "FVector2D") or import("Vector2D")
     local colorClass = rawget(_G, "FLinearColor") or import("LinearColor")
     local function vector(x, y) return vectorClass(x, y) end
-    local function color(r, g, b, a) return colorClass(r, g, b, a or 1) end
-    
+    local function color(r, g, b, a)
+        local function linear(v) v = v / 255; if v <= 0.04045 then return v / 12.92 end; return ((v + 0.055) / 1.055) ^ 2.4 end
+        return colorClass(linear(r), linear(g), linear(b), a or 1)
+    end
+    local function visibility(w, v)
+        local fn = member(w, "SetWidgetVisibility") or member(w, "SetVisibility")
+        assert(type(fn) == "function", "UI_VISIBILITY_UNAVAILABLE"); fn(w, v)
+    end
     local function parent()
         local ok, t = pcall(require, "GameLua.Mod.BaseMod.Common.UI.InGameUITools")
         if not ok or type(member(t, "GetMainControlBaseUI")) ~= "function" then return end
@@ -185,122 +418,653 @@ local function _VIPLicense_Init()
         local p = member(root, "CanvasPanel_0"); if not valid(p) then p = member(root, "CanvasPanel_42") end
         if valid(p) then return p end
     end
+    local function destroy(d)
+        if not d then return end
+        d.Visible = false
+        if d.Event and d.Handle ~= nil then pcall(function() d.Event:Remove(d.Handle) end) end
+        if valid(d.Container) then pcall(function() d.Container:RemoveFromParent() end) end
+        d.Submit = nil; d.Event = nil; d.Handle = nil; d.Container = nil; d.Parent = nil
+        d.Input = nil; d.Button = nil; d.Status = nil; d.Title = nil; d.Detail = nil; d.Hint = nil; d.Design = nil; d.Cache = nil
+    end
 
     function UI.Build(kind, key, status, submit)
         local p = parent(); if not p then return nil, "UI_NOT_READY" end
         local enums = UEnums.ESlateVisibility
         local passive = enums.SelfHitTestInvisible
+        if enums.Visible == nil or passive == nil then return nil, "UI_ENUM_UNAVAILABLE" end
         local welcome = kind == "welcome"
         local W, H = welcome and 600 or 500, welcome and 276 or 248
-        local d = {Parent = p, Visible = false, Submit = submit}
+        local scale = welcome and 0.8 or 1
+        pcall(function()
+            local v = p:GetCachedGeometry():GetLocalSize()
+            if v.X > 24 and v.Y > 24 then scale = math.min(scale, (v.X - 24) / W, (v.Y - 24) / H) end
+        end)
+        local d = {Parent = p, Visible = false, Submit = submit, Scale = scale}
         local ok, buildError = pcall(function()
-            local function make(class, outer) local w = CGame:NewObjectFromPath("/Script/UMG." .. class, outer) return w end
+            local function make(class, outer)
+                local w = CGame:NewObjectFromPath("/Script/UMG." .. class, outer)
+                assert(valid(w), "UI_WIDGET_UNAVAILABLE"); return w
+            end
             d.Container = make("CanvasPanel", p)
-            local bg = make("Border", d.Container)
-            bg:SetBrushColor(color(0.05, 0.02, 0.02, 0.96))
-            local bgSlot = d.Container:AddChildToCanvas(bg)
-            bgSlot:SetPosition(vector(0,0)); bgSlot:SetSize(vector(W,H))
-            local title = make("TextBlock", d.Container)
-            title:SetText(welcome and "VIP ACCESS // WELCOME" or "ABU RAHAF VIP LICENSE")
-            local tSlot = d.Container:AddChildToCanvas(title)
-            tSlot:SetPosition(vector(20,20)); tSlot:SetAutoSize(true)
-            
-            if not welcome then
+            local design = make("CanvasPanel", d.Container); d.Design = design
+            local artRoot = design
+            local canCache, cache = pcall(make, "InvalidationBox", d.Container)
+            if canCache and valid(cache) and type(member(cache, "SetCanCache")) == "function" then
+                local attached = pcall(function() cache:AddChild(design); cache:SetCanCache(true); visibility(cache, passive) end)
+                if attached then artRoot = cache; d.Cache = cache end
+            end
+            local artSlot = d.Container:AddChildToCanvas(artRoot)
+            artSlot:SetAutoSize(false); artSlot:SetPosition(vector(0, 0)); artSlot:SetSize(vector(W, H)); artSlot:SetZOrder(1)
+            visibility(design, passive)
+            local function add(w, x, y, ww, hh, z, dynamic)
+                local slot = (dynamic and d.Container or design):AddChildToCanvas(w)
+                slot:SetAutoSize(false); slot:SetPosition(vector(x, y)); slot:SetSize(vector(ww, hh)); slot:SetZOrder(z)
+                return slot
+            end
+            local artwork = {}
+            local function drawRect(x, y, ww, hh, c, z, opacity)
+                local w = make("Border", d.Container)
+                w:SetBrushColor(colorClass(c.R, c.G, c.B, opacity or .5)); visibility(w, passive)
+                add(w, x, y, ww, hh, z); return w
+            end
+            local function rect(x, y, ww, hh, c, z, opacity)
+                artwork[#artwork+1] = {X = x, Y = y, W = ww, H = hh, C = c, Z = z, A = opacity or .5, Order = #artwork+1}
+            end
+            local function renderArt()
+                table.sort(artwork, function(a, b)
+                    if a.Z == b.Z then return a.Order > b.Order end
+                    return a.Z > b.Z
+                end)
+                local covered = {}
+                local function put(out, x, y, w, h)
+                    if w > .00001 and h > .00001 then out[#out+1] = {X = x, Y = y, W = w, H = h} end
+                end
+                for _, shape in ipairs(artwork) do
+                    local pieces = {{X = shape.X, Y = shape.Y, W = shape.W, H = shape.H}}
+                    for _, cover in ipairs(covered) do
+                        local nextPieces = {}
+                        for _, piece in ipairs(pieces) do
+                            local x1 = math.max(piece.X, cover.X); local y1 = math.max(piece.Y, cover.Y)
+                            local x2 = math.min(piece.X + piece.W, cover.X + cover.W)
+                            local y2 = math.min(piece.Y + piece.H, cover.Y + cover.H)
+                            if x2 <= x1 or y2 <= y1 then nextPieces[#nextPieces+1] = piece
+                            else
+                                put(nextPieces, piece.X, piece.Y, piece.W, y1 - piece.Y)
+                                put(nextPieces, piece.X, y2, piece.W, piece.Y + piece.H - y2)
+                                put(nextPieces, piece.X, y1, x1 - piece.X, y2 - y1)
+                                put(nextPieces, x2, y1, piece.X + piece.W - x2, y2 - y1)
+                            end
+                        end
+                        pieces = nextPieces; if #pieces == 0 then break end
+                    end
+                    local changed = true
+                    while changed do
+                        changed = false
+                        for i = 1, #pieces do
+                            local a = pieces[i]
+                            for j = i + 1, #pieces do
+                                local b = pieces[j]
+                                local vertical = math.abs(a.X - b.X) < .00001 and math.abs(a.W - b.W) < .00001
+                                    and (math.abs(a.Y + a.H - b.Y) < .00001 or math.abs(b.Y + b.H - a.Y) < .00001)
+                                local horizontal = math.abs(a.Y - b.Y) < .00001 and math.abs(a.H - b.H) < .00001
+                                    and (math.abs(a.X + a.W - b.X) < .00001 or math.abs(b.X + b.W - a.X) < .00001)
+                                if vertical or horizontal then
+                                    local x, y = math.min(a.X, b.X), math.min(a.Y, b.Y)
+                                    a.W = math.max(a.X + a.W, b.X + b.W) - x
+                                    a.H = math.max(a.Y + a.H, b.Y + b.H) - y; a.X = x; a.Y = y
+                                    table.remove(pieces, j); changed = true; break
+                                end
+                            end
+                            if changed then break end
+                        end
+                    end
+                    for _, piece in ipairs(pieces) do
+                        drawRect(piece.X, piece.Y, piece.W, piece.H, shape.C, shape.Z, shape.A)
+                    end
+                    covered[#covered+1] = shape
+                end
+                artwork = nil
+            end
+            local function sample(stops, t, opacity)
+                t = math.max(0, math.min(1, t)); local a, b, u
+                if t <= .5 then a, b, u = stops[1], stops[2], t * 2 else a, b, u = stops[2], stops[3], (t - .5) * 2 end
+                return color(a[1] + (b[1] - a[1]) * u, a[2] + (b[2] - a[2]) * u, a[3] + (b[3] - a[3]) * u, opacity)
+            end
+            local function panel(x, y, ww, hh, cut, stops, z, columns, opacity)
+                columns = math.min(columns, 12)
+                for i = 0, columns - 1 do
+                    local a = ww * i / columns; local b = ww * (i + 1) / columns
+                    local inset = math.max(0, cut - math.min(a, ww - b))
+                    rect(x + a, y + inset, b - a, hh - inset * 2, sample(stops, (i + .5) / columns, opacity), z, opacity)
+                end
+            end
+            local function rail(x, y, ww, hh, stops, z, columns)
+                columns = math.min(columns, 12)
+                for i = 0, columns - 1 do
+                    rect(x + ww * i / columns, y, ww / columns, hh, sample(stops, (i + .5) / columns), z)
+                end
+            end
+            local function line(ax, ay, bx, by, th, c, z)
+                local dx, dy = bx - ax, by - ay
+                local len = math.sqrt(dx * dx + dy * dy)
+                if len <= 0 then return end
+                local angle
+                if dx == 0 then angle = dy >= 0 and 90 or -90
+                else angle = math.atan(dy / dx) * 180 / math.pi; if dx < 0 then angle = angle + 180 end end
+                local w = drawRect((ax + bx - len) / 2, (ay + by - th) / 2, len, th, c, z, z >= 7 and 1 or .5)
+                w:SetRenderTransformPivot(vector(.5, .5)); w:SetRenderAngle(angle)
+            end
+            local slate = import("SlateColor")
+            local fontObject
+            if slua and type(slua.loadObject) == "function" then
+                local loaded, obj = pcall(slua.loadObject, "/Engine/EngineFonts/Roboto.Roboto")
+                if loaded and valid(obj) then fontObject = obj end
+            end
+            local function style(w, size, c, bold)
+                local font = member(w, "Font")
+                if font then
+                    if type(font) == "table" then local copy = {}; for k, v in pairs(font) do copy[k] = v end; font = copy end
+                    font.Size = size
+                    if fontObject then font.FontObject = fontObject; font.TypefaceFontName = bold and "Bold" or "Regular" end
+                    if font.OutlineSettings then
+                        local outline = font.OutlineSettings
+                        if type(outline) == "table" then local copy = {}; for k, v in pairs(outline) do copy[k] = v end; outline = copy end
+                        outline.OutlineSize = 0; font.OutlineSettings = outline
+                    end
+                    w:SetFont(font)
+                end
+                w:SetColorAndOpacity(slate(c))
+                pcall(function() w:SetShadowOffset(vector(0, 0)); w:SetShadowColorAndOpacity(color(0, 0, 0, 0)) end)
+                pcall(function() w:SetAutoWrapText(true) end)
+            end
+            local function text(value, x, y, ww, hh, size, c, z, bold, center, dynamic)
+                local w = make("TextBlock", d.Container); w:SetText(value); style(w, size, c, bold)
+                visibility(w, passive); add(w, x, y, ww, hh, z, dynamic)
+                if center then pcall(function() w:SetJustification(1) end) end
+                return w
+            end
+            local frame = {{28, 220, 255}, {92, 123, 255}, {155, 105, 255}}
+            local bright = {{188, 250, 255}, {202, 215, 255}, {226, 198, 255}}
+            local edge = {{12, 72, 104}, {37, 52, 112}, {69, 38, 112}}
+            local body = {{8, 22, 39}, {13, 25, 49}, {17, 22, 45}}
+            local header = {{11, 34, 58}, {20, 35, 70}, {36, 29, 67}}
+            local gold = {{16, 105, 143}, {55, 104, 213}, {125, 73, 198}}
+            local white = color(239, 249, 255)
+            local forest = color(151, 232, 255)
+            local burgundy = color(182, 215, 255)
+            panel(6, 6, W - 12, H - 12, 10, body, 2, 24, .86)
+            rail(13, 0, W - 26, 6, frame, 3, 24)
+            rail(13, H - 6, W - 26, 6, frame, 3, 24)
+            rect(0, 13, 6, H - 26, color(28, 220, 255), 3)
+            rect(W - 6, 13, 6, H - 26, color(155, 105, 255), 3)
+            rail(13, 1, W - 26, 1.5, bright, 3, 24)
+            rail(13, H - 3, W - 26, 1.5, edge, 3, 24)
+            rect(1, 13, 1.5, H - 26, color(125, 235, 255), 3)
+            rect(W - 3, 13, 1.5, H - 26, color(190, 165, 255), 3)
+            for _, s in ipairs({{1, 13, 13, 1}, {1, H - 13, 13, H - 1}}) do line(s[1], s[2], s[3], s[4], 2, color(188, 250, 255), 3) end
+            for _, s in ipairs({{W - 13, 1, W - 1, 13}, {W - 13, H - 1, W - 1, H - 13}}) do line(s[1], s[2], s[3], s[4], 2, color(226, 198, 255), 3) end
+            panel(10, 10, W - 20, 65, 16, gold, 4, 24, .68)
+            panel(13, 13, W - 26, 59, 14, header, 5, 32, .94)
+            rail(24, 17, W - 48, 1.2, bright, 6, 24)
+            if welcome then
+                d.Title = text("VIP ACCESS // WELCOME", 24, 22, W - 48, 42, 19, white, 7, true, true)
+                local pw = math.min(340, W - 72); local px = (W - pw) / 2
+                panel(px, 99, pw, 51, 12, gold, 4, 16, .82)
+                panel(px + 3, 102, pw - 6, 45, 10, {{12, 82, 126}, {35, 106, 201}, {83, 63, 158}}, 5, 20, .96)
+                d.Detail = text("Kill limit 8-10", px + 16, 109, pw - 32, 34, 23, white, 7, true, true)
+                d.Hint = text("PREMIUM ACCESS • READY WHEN YOU ARE", 30, 165, W - 60, 32, 17, forest, 7, true, true)
+            else
+                d.Title = text("VIP GLASS", 22, 15, W - 44, 31, 24, white, 7, true, true)
+                text("SECURE KEY AUTHENTICATION", 22, 45, W - 44, 21, 12, white, 7, true, true)
+                line(W / 2 - 118, 56, W / 2 - 47, 56, 1, color(251, 244, 228), 7)
+                line(W / 2 + 47, 56, W / 2 + 118, 56, 1, color(251, 244, 228), 7)
+                text("LICENSE KEY", 22, 82, W - 44, 20, 13, burgundy, 7, true, false)
+                rail(27, 104, W - 54, 2, gold, 4, 24)
+                rail(27, 143, W - 54, 2, gold, 4, 24)
+                rect(20, 111, 2, 27, color(188, 108, 59), 4)
+                rect(W - 22, 111, 2, 27, color(114, 179, 105), 4)
+                line(20, 111, 27, 104, 2, color(242, 219, 164), 4)
+                line(W - 27, 104, W - 20, 111, 2, color(242, 219, 164), 4)
+                line(20, 138, 27, 145, 2, color(242, 219, 164), 4)
+                line(W - 27, 145, W - 20, 138, 2, color(242, 219, 164), 4)
                 d.Input = make("EditableTextBox", d.Container)
                 d.Input:SetText(key or "")
-                local iSlot = d.Container:AddChildToCanvas(d.Input)
-                iSlot:SetPosition(vector(20, 100)); iSlot:SetSize(vector(W-40, 40))
-                d.Hint = make("TextBlock", d.Container)
-                d.Hint:SetText("Enter your key here...")
-                local hSlot = d.Container:AddChildToCanvas(d.Hint)
-                hSlot:SetPosition(vector(20, 60)); hSlot:SetAutoSize(true)
-                d.Status = make("TextBlock", d.Container)
-                d.Status:SetText(status or "Locked")
-                local sSlot = d.Container:AddChildToCanvas(d.Status)
-                sSlot:SetPosition(vector(20, 160)); sSlot:SetAutoSize(true)
+                local fg = forest; local bg = color(255, 244, 216, 0)
+                local inputStyle = member(d.Input, "WidgetStyle")
+                if inputStyle then
+                    if type(inputStyle) == "table" then local copy = {}; for k, v in pairs(inputStyle) do copy[k] = v end; inputStyle = copy end
+                    local inputFont = member(inputStyle, "Font")
+                    if inputFont then
+                        if type(inputFont) == "table" then local copy = {}; for k, v in pairs(inputFont) do copy[k] = v end; inputFont = copy end
+                        inputFont.Size = 17
+                        if fontObject then inputFont.FontObject = fontObject; inputFont.TypefaceFontName = "Regular" end
+                        inputStyle.Font = inputFont
+                    end
+                    inputStyle.ForegroundColor = slate(fg); inputStyle.ReadOnlyForegroundColor = slate(fg)
+                    for _, name in ipairs({"BackgroundImageNormal", "BackgroundImageHovered", "BackgroundImageFocused", "BackgroundImageReadOnly"}) do
+                        local brush = member(inputStyle, name)
+                        if brush then
+                            if type(brush) == "table" then local copy = {}; for k, v in pairs(brush) do copy[k] = v end; brush = copy end
+                            brush.TintColor = slate(bg); inputStyle[name] = brush
+                        end
+                    end
+                    d.Input.WidgetStyle = inputStyle
+                else
+                    local inputFont = member(d.Input, "Font")
+                    if inputFont then
+                        if type(inputFont) == "table" then local copy = {}; for k, v in pairs(inputFont) do copy[k] = v end; inputFont = copy end
+                        inputFont.Size = 17; d.Input.Font = inputFont
+                    end
+                    d.Input.ForegroundColor = fg; d.Input.BackgroundColor = bg
+                end
+                local setForeground = member(d.Input, "SetForegroundColor")
+                if type(setForeground) == "function" then setForeground(d.Input, fg) end
+                pcall(function() d.Input:SetHintText("Enter your key") end)
+                visibility(d.Input, enums.Visible); add(d.Input, 23, 107, W - 46, 35, 8, true)
+                d.Hint = text("ENCRYPTED LOCAL KEY STORAGE", 22, 149, W - 44, 19, 11, burgundy, 7, false, false)
+                d.Status = text(status or "Enter your key", 22, 170, W - 44, 23, 11, burgundy, 8, false, false, true)
             end
-            
-            local btn = make("Button", d.Container)
-            local bSlot = d.Container:AddChildToCanvas(btn)
-            bSlot:SetPosition(vector(20, 200)); bSlot:SetSize(vector(W-40, 40))
-            local btnTxt = make("TextBlock", btn)
-            btnTxt:SetText(welcome and "CONTINUE" or "UNLOCK ACCESS")
-            btn:AddChild(btnTxt)
-            
-            d.Event = btn.OnClicked
+            local button = make("Button", d.Container); d.Button = button
+            local by = welcome and 212 or 201; local bh = welcome and 42 or 34
+            local bw = welcome and 202 or 190; local bx = (W - bw) / 2
+            panel(bx - 4, by - 3, bw + 8, bh + 6, 9, gold, 4, 16, .82)
+            panel(bx, by, bw, bh, 8, {{10, 137, 183}, {39, 121, 229}, {100, 77, 201}}, 5, 16, .98)
+            pcall(function() button:SetBackgroundColor(color(255, 255, 255, 0)) end)
+            visibility(button, enums.Visible)
+            local label = make("TextBlock", button); label:SetText(welcome and "CONTINUE" or "UNLOCK ACCESS"); style(label, 17, white, true); visibility(label, passive)
+            local labelSlot = button:AddChild(label)
+            pcall(function() labelSlot:SetHorizontalAlignment(2); labelSlot:SetVerticalAlignment(2) end)
+            add(button, bx, by, bw, bh, 9, true)
+            d.Event = button.OnClicked
             d.Handle = d.Event:Add(function()
+                if not d.Visible or d.Busy then return end
                 if welcome then
-                    if d.Container and valid(d.Container) then d.Container:RemoveFromParent() end
-                    if _G.LunarLoginRuntime then _G.LunarLoginRuntime.WelcomeShown = true end
+                    destroy(d); d.Dismissed = true
+                    local l = _G.LunarLoginRuntime; if l and l.WelcomeUI == d then l.WelcomeUI = nil end
                     return
                 end
-                local k = d.Input:GetText()
+                local okRead, k = pcall(function() return d.Input:GetText() end)
+                if not okRead or type(k) ~= "string" then return end
+                k = k:match("^%s*(.-)%s*$")
+                if #k == 0 or #k > 512 then d.Status:SetText("Enter a valid key"); return end
                 if d.Submit then d.Submit(k) end
             end)
-            
+            renderArt()
             local slot = p:AddChildToCanvas(d.Container); slot:SetAutoSize(false); slot:SetSize(vector(W, H)); slot:SetZOrder(9200)
             local anchors = slot:GetAnchors(); anchors.Minimum = vector(.5, .5); anchors.Maximum = vector(.5, .5)
             slot:SetAnchors(anchors); slot:SetAlignment(vector(.5, .5)); slot:SetPosition(vector(0, 0))
+            d.Container:SetRenderTransformPivot(vector(.5, .5)); d.Container:SetRenderScale(vector(scale, scale))
+            visibility(d.Container, passive)
         end)
-        if not ok then return nil, tostring(buildError) end
+        if not ok then UI.LastBuildError = tostring(buildError); destroy(d); return nil, "UI_BUILD_UNAVAILABLE" end
+        UI.LastBuildError = nil
         d.Visible = true; return d
+    end
+    _G.LunarUIAssetCache = nil
+
+    -- ============================================================================
+    -- 3) إنشاء LunarLoginRuntime : الحالة الرئيسية لتسجيل الدخول
+    -- ============================================================================
+    local existing = _G.LunarLoginRuntime
+    if existing and existing.UIFactory and existing.UIFactory.Version ~= UI.Version
+        and existing.Scope == VIPLicenseCore.Primitives.md5(VIPLicenseConfig.game .. "\0" .. (VIPLicenseConfig.secret or "") .. "\0offlinekeys") then
+        local visibleWelcome = existing.WelcomeUI and existing.WelcomeUI.Visible
+        if existing.DestroyUI then existing.DestroyUI() end
+        existing.UIFactory.Build = UI.Build; existing.UIFactory.Version = UI.Version
+        if visibleWelcome then existing.WelcomeShown = false end
+        existing.NeedsUpdate = true
+    end
+
+    local function hex(s) return (s:gsub('.', function(c) return string.format('%02x', string.byte(c)) end)) end
+    local function unhex(s)
+        if type(s) ~= "string" or #s > 1024 or #s % 2 ~= 0 or s:find('[^%x]') then return nil end
+        return (s:gsub('..', function(v) return string.char(tonumber(v, 16)) end))
     end
 
     local current = _G.LunarLoginRuntime
-    if not current then
-        local L = {Authorized = false, Pending = false, NeedsUpdate = true, WelcomeShown = false, Key = "", Status = "Enter your key"}
+    local expectedScope = VIPLicenseCore.Primitives.md5(VIPLicenseConfig.game .. "\0" .. (VIPLicenseConfig.secret or "") .. "\0offlinekeys")
+    if not current or current.Scope ~= expectedScope then
+        if current and current.DestroyUI then current.DestroyUI() end
+        local L = {Authorized = false, Pending = false, NeedsUpdate = true, WelcomeShown = false,
+            Key = "", Seed = "", Scope = expectedScope, StorageVersion = 1, Status = "Enter your key", Diagnostics = {DeviceReads = 0}}
         _G.LunarLoginRuntime = L
         L.UIFactory = UI
+        -- مسارات حفظ الكود
+        local paths = {}
+        local basePaths = {
+            "//storage/emulated/0/Android/data/com.tencent.ig/files/UE4Game/ShadowTrackerExtra/ShadowTrackerExtra/Saved/SaveGames/",
+            "//storage/emulated/0/Android/data/com.vng.pubgmobile/files/UE4Game/ShadowTrackerExtra/ShadowTrackerExtra/Saved/SaveGames/",
+            "//storage/emulated/0/Android/data/com.pubg.krmobile/files/UE4Game/ShadowTrackerExtra/ShadowTrackerExtra/Saved/SaveGames/",
+            "//storage/emulated/0/Android/data/com.rekoo.pubgm/files/UE4Game/ShadowTrackerExtra/ShadowTrackerExtra/Saved/SaveGames/",
+            "//storage/emulated/0/Android/data/com.pubg.imobile/files/UE4Game/ShadowTrackerExtra/ShadowTrackerExtra/Saved/SaveGames/",
+            "Documents/ShadowTrackerExtra/Saved/SaveGames/",
+            "ShadowTrackerExtra/Saved/SaveGames/",
+        }
+        for _, base in ipairs(basePaths) do
+            table.insert(paths, base .. "VIP_SERVER_LOGIN_V7_settings.lua")
+        end
+        -- إضافة مسارات ios
+        if os and os.getenv then
+            local homeDir = os.getenv("HOME")
+            if homeDir and homeDir ~= "" then
+                table.insert(paths, 1, homeDir .. "/Documents/ShadowTrackerExtra/Saved/SaveGames/VIP_SERVER_LOGIN_V7_settings.lua")
+            end
+        end
 
+        local function identityPath(path)
+            local changed, count = path:gsub("VIP_SERVER_LOGIN_V7_settings%.lua$", "VIP_SERVER_DEVICE_V1_settings.lua")
+            if count > 0 then return changed end
+            return path .. ".device"
+        end
+        local function plainKeyPath(base)
+            local prefix = base:match("^(.*[/\\])[^/\\]+$") or ""
+            return prefix .. "VIP_SERVER_PLAINKEY_V1_settings.lua"
+        end
+        local function digest(key, seed)
+            return VIPLicenseCore.Primitives.md5("LUNAR-DEVICE-1\0" .. L.Scope .. "\0" .. key .. "\0" .. seed)
+        end
+        local function readRecord(path, identity)
+            if not (io and type(io.open) == "function") then return nil, "unreadable" end
+            local ok, file, reason, code = pcall(io.open, path, "r")
+            if not ok then return nil, "unreadable" end
+            if not file then
+                local text = type(reason) == "string" and reason:lower() or ""
+                if reason == nil or code == 2 or text:find("no such file", 1, true)
+                    or text:find("not found", 1, true) or text:find("does not exist", 1, true) then
+                    return nil, "missing"
+                end
+                return nil, "unreadable"
+            end
+            local good, data = pcall(function() return file:read(4097) end)
+            pcall(function() file:close() end)
+            if not good or type(data) ~= "string" then return nil, "unreadable" end
+            if #data > 4096 then return nil, "invalid" end
+            local scope = data:match('%f[%w_]Scope%s*=%s*"([%x]+)"')
+            if scope and scope ~= L.Scope then return nil, "other_scope" end
+            if scope ~= L.Scope then return nil, "invalid" end
+            local key = unhex(data:match('%f[%w_]KeyHex%s*=%s*"([^"]*)"'))
+            local seed = unhex(data:match('%f[%w_]SeedHex%s*=%s*"([^"]*)"'))
+            if key == nil or seed == nil or #seed == 0 or #seed > 512 then return nil, "invalid" end
+            local check = data:match('%f[%w_]Check%s*=%s*"([%x]+)"')
+            local version = data:match('%f[%w_]Version%s*=%s*(%d+)')
+            if identity or check or version then
+                if version ~= "1" or check ~= digest(key, seed) then return nil, "invalid" end
+            end
+            return {Key = key, Seed = seed, Path = path, Identity = identity, Checked = version == "1"}, "valid"
+        end
+        local function candidates()
+            local list, seen = {}, {}
+            local function add(path)
+                if type(path) == "string" and not seen[path] then seen[path] = true; list[#list+1] = path end
+            end
+            add(L.Path); add(L.PreferredPath)
+            for _, path in ipairs(paths) do add(path) end
+            return list
+        end
+        local function recover()
+            if L.IdentityPinned then return true end
+            local identities, legacy, issues = {}, {}, {}
+            local function collect(base, path, identity)
+                local record, state = readRecord(path, identity)
+                if record then
+                    record.Base = base
+                    local list = identity and identities or legacy; list[#list+1] = record
+                elseif state == "invalid" or (state == "unreadable" and base == L.PreferredPath) then
+                    issues[#issues+1] = state
+                end
+            end
+            for _, base in ipairs(candidates()) do
+                local device = identityPath(base)
+                collect(base, device, true); collect(base, device .. ".bak", true)
+                collect(base, base, false); collect(base, base .. ".bak", false)
+            end
+            local list = #identities > 0 and identities or legacy
+            local first = list[1]
+            if first then
+                for _, record in ipairs(list) do
+                    if record.Seed ~= first.Seed then
+                        L.IdentityError = "DEVICE_CACHE_CONFLICT"; L.Diagnostics.Identity = "conflict"; return false
+                    end
+                end
+                L.Seed = first.Seed; L.Key = first.Key; L.Path = first.Base
+                if L.Key == "" then
+                    for _, record in ipairs(list) do
+                        if record.Key ~= "" then L.Key = record.Key; break end
+                    end
+                end
+                if L.Key == "" then
+                    for _, record in ipairs(legacy) do
+                        if record.Seed == L.Seed and record.Key ~= "" then L.Key = record.Key; break end
+                    end
+                end
+                L.IdentityPinned = true; L.IdentityPersisted = true; L.HasIdentityRecord = first.Identity
+                L.IdentityError = nil; L.Dirty = true
+                L.Diagnostics.Identity = first.Identity and "restored" or "legacy_migration"
+                return true
+            end
+            if #issues > 0 then
+                L.IdentityError = "DEVICE_CACHE_RECOVERY_REQUIRED"; L.Diagnostics.Identity = "recovery_required"; return false
+            end
+            L.IdentityError = nil; L.Diagnostics.Identity = "new_install"; return true
+        end
+        local function payload(key, seed)
+            return 'return { Version = 1, Scope = "' .. L.Scope .. '", KeyHex = "' .. hex(key)
+                .. '", SeedHex = "' .. hex(seed) .. '", Check = "' .. digest(key, seed) .. '" }'
+        end
+        local function plainPayload(key)
+            return 'return { Key = "' .. key:gsub("\\", "\\\\"):gsub('"', '\\"')
+                .. '", Scope = "' .. L.Scope .. '" }'
+        end
+        -- كتابة آمنة للملف
+        local function verifiedWrite(path, identity, key, seed, data)
+            local current, state = readRecord(path, identity)
+            if current and current.Checked and current.Seed == seed and current.Key == key then return true end
+            if state == "unreadable" or state == "other_scope" then return false end
+            if current and current.Seed ~= seed and (identity or not L.HasIdentityRecord) then return false end
+            local file = io.open(path, "w")
+            if not file then return false end
+            file:write(data)
+            file:close()
+            local result = readRecord(path, identity)
+            return result ~= nil and result.Checked and result.Seed == seed and result.Key == key
+        end
+        -- حفظ الكود العادي (بدون هوية الجهاز)
+        L.SavePlain = function()
+            local key = L.AttemptKey or L.Key
+            if type(key) ~= "string" or key == "" then return false end
+            local data = plainPayload(key)
+            local ok = false
+            for _, base in ipairs(candidates()) do
+                local pp = plainKeyPath(base)
+                local f = io.open(pp, "w")
+                if f then
+                    f:write(data); f:close()
+                    ok = true
+                end
+            end
+            return ok
+        end
+        L.LoadPlain = function()
+            if type(L.Key) == "string" and L.Key ~= "" then return true end
+            for _, base in ipairs(candidates()) do
+                local pp = plainKeyPath(base)
+                local okR, file = pcall(io.open, pp, "r")
+                if okR and file then
+                    local data = file:read("*a") or ""
+                    file:close()
+                    local scope = data:match('Scope%s*=%s*"([%x]+)"')
+                    if scope == L.Scope then
+                        local key = data:match('Key%s*=%s*"([^"]*)"')
+                        if key and key ~= "" then
+                            L.Key = key
+                            return true
+                        end
+                    end
+                end
+            end
+            return false
+        end
+        L.Save = function()
+            pcall(L.SavePlain)
+            if L.Seed == "" or L.IdentityError then return false end
+            local key = L.AttemptKey or L.Key
+            local data = payload(key, L.Seed)
+            local preferred = candidates()
+            for _, base in ipairs(preferred) do
+                local device = identityPath(base)
+                local old, oldState = readRecord(base, false)
+                local current, currentState = readRecord(device, true)
+                if oldState ~= "unreadable" and currentState ~= "unreadable"
+                    and oldState ~= "other_scope" and currentState ~= "other_scope"
+                    and (not old or old.Seed == L.Seed or L.HasIdentityRecord)
+                    and (not current or current.Seed == L.Seed) then
+                    local a = verifiedWrite(device, true, key, L.Seed, data)
+                    local b = verifiedWrite(device .. ".bak", true, key, L.Seed, data)
+                    local c = verifiedWrite(base, false, key, L.Seed, data)
+                    local d = verifiedWrite(base .. ".bak", false, key, L.Seed, data)
+                    if (a or b) and ((a and b) or c or d) then
+                        L.Path = base; L.Key = key; L.IdentityPinned = true; L.IdentityPersisted = true; L.HasIdentityRecord = true
+                        L.IdentityError = nil; L.Dirty = not (a and b and c and d)
+                        L.SaveRetryAt = L.Dirty and (os.time() + 30) or nil
+                        L.SaveError = L.Dirty and "Device backup repair pending" or nil
+                        L.Diagnostics.Identity = L.Dirty and "backup_pending" or "saved"
+                        return true
+                    end
+                end
+            end
+            L.Dirty = true; L.SaveRetryAt = os.time() + 30
+            L.SaveError = "Device cache could not be verified"; L.Diagnostics.Identity = "save_failed"
+            return false
+        end
+        L.BindSettingsPath = function(featurePath)
+            L.PreferredPath = featurePath
+            if not L.IdentityPinned then recover() end
+            if L.Seed ~= "" and not L.IdentityError and (L.Dirty or not L.IdentityPersisted) then L.Save() end
+        end
+        L.EnsureIdentity = function()
+            if not L.IdentityPinned then
+                L.Seed = ""
+                assert(recover(), L.IdentityError or "DEVICE_CACHE_RECOVERY_REQUIRED")
+            end
+            if L.Seed == "" then
+                L.Diagnostics.DeviceReads = L.Diagnostics.DeviceReads + 1
+                local id = Client.GetPhoneDeviceID()
+                assert(type(id) == "string" and #id > 0 and #id <= 512, "DEVICE_ID_UNAVAILABLE")
+                L.Seed = id
+            end
+            local saved = L.Save()
+            assert(saved or L.IdentityPersisted, "DEVICE_CACHE_SAVE_FAILED")
+        end
+        recover()
+        L.LoadPlain()
+        L.DestroyUI = function() destroy(L.LoginUI); destroy(L.WelcomeUI); L.LoginUI = nil; L.WelcomeUI = nil end
+        local function wake()
+            local f = _G.LunarFeatures; if f and f.Wake and not f.Token.Stopped then f.Wake() end
+        end
         L.Core = VIPLicenseCore
         L.Auth = VIPLicenseCore.new(VIPLicenseConfig, {
-            clock = function() return os.time() end,
+            clock = function() local t = os.time(); return t end,
+            wall = function() return os.time() end,
+            serial = function(key)
+                L.EnsureIdentity()
+                return VIPLicenseCore.Primitives.name_uuid('VIP-SERVER-V1\0' .. key .. '\0' .. L.Seed)
+            end,
             status = function(message, phase)
                 L.Status = message; L.Pending = phase == "pending"
                 if phase == "active" then
-                    L.Authorized = true; L.Key = L.AttemptKey or L.Key
-                    if L.LoginUI and valid(L.LoginUI.Container) then L.LoginUI.Container:RemoveFromParent() end
-                    L.LoginUI = nil
+                    L.Authorized = true; L.Key = L.AttemptKey or L.Key; L.Save()
+                    destroy(L.LoginUI); L.LoginUI = nil
                 else L.Authorized = false end
                 L.NeedsUpdate = true
+                local d = L.LoginUI
+                if d then
+                    if d.StatusText ~= message then d.Status:SetText(message); d.StatusText = message end
+                    if d.Busy ~= L.Pending then
+                        d.Busy = L.Pending
+                        pcall(function() d.Input:SetIsEnabled(not L.Pending); d.Button:SetIsEnabled(not L.Pending) end)
+                    end
+                end
+                wake()
             end
         })
-        
         L.Authorized = L.Auth.IsAuthorized()
         L.Login = function(key)
             if L.Authorized or L.Pending then return false end
-            L.AttemptKey = key
-            local ok, result = pcall(L.Auth.Login, key)
-            if result then L.Authorized = true end
+            L.AttemptKey = type(key) == "string" and key:match("^%s*(.-)%s*$") or ""
+            local ok, result = pcall(L.Auth.Login, L.AttemptKey)
+            if not ok then L.Status = "Login could not start"; L.Pending = false; L.NeedsUpdate = true; wake(); return false end
+            if result and L.Seed ~= "" then
+                L.Key = L.AttemptKey
+                pcall(L.Save)
+            end
             return result
         end
-        
-        L.DestroyUI = function() 
-            if L.LoginUI and valid(L.LoginUI.Container) then L.LoginUI.Container:RemoveFromParent() L.LoginUI = nil end
-            if L.WelcomeUI and valid(L.WelcomeUI.Container) then L.WelcomeUI.Container:RemoveFromParent() L.WelcomeUI = nil end
+        L.AutoLoginAttempted = false
+        local function tryAutoLogin()
+            if L.Authorized then return true end
+            if type(L.Key) ~= "string" or L.Key == "" then return false end
+            if L.Pending then return false end
+            L.AutoLoginAttempted = true
+            local ok, res = pcall(L.Login, L.Key)
+            return ok and res == true
         end
-
+        L.TryAutoLogin = tryAutoLogin
+        tryAutoLogin()
+        L.Logout = function()
+            L.Auth.Logout(); L.Authorized = false; L.DestroyUI(); L.NeedsUpdate = true; wake()
+        end
         L.Update = function()
+            if not L.Authorized and not L.Pending then
+                if type(L.Key) == "string" and L.Key ~= "" then
+                    if not L.AutoLoginAttempted or L.IdentityError or (L.SaveError ~= nil) then
+                        L.TryAutoLogin()
+                    end
+                end
+            end
+            if L.Dirty and (not L.SaveRetryAt or os.time() >= L.SaveRetryAt or os.time() < L.SaveRetryAt - 30) then L.Save() end
             if L.Authorized then
                 if not L.WelcomeShown then
                     local d = UI.Build("welcome")
                     if d then L.WelcomeUI = d; L.WelcomeShown = true end
                 end
+                L.NeedsUpdate = not L.WelcomeShown or L.Dirty
                 return
             end
             local p = parent()
-            if L.LoginUI and (not valid(L.LoginUI.Container) or p ~= L.LoginUI.Parent) then L.DestroyUI() end
+            if L.LoginUI and (not valid(L.LoginUI.Container) or p ~= L.LoginUI.Parent) then destroy(L.LoginUI); L.LoginUI = nil end
             if not L.LoginUI then
                 local d = UI.Build("login", L.Key, L.Status, L.Login)
-                if d then L.LoginUI = d end
+                if d then
+                    d.Busy = L.Pending; d.StatusText = L.Status; L.LoginUI = d
+                    pcall(function() d.Input:SetIsEnabled(not L.Pending); d.Button:SetIsEnabled(not L.Pending) end)
+                end
             end
+            L.NeedsUpdate = true
         end
     end
+
+    _G.VIPLicenseLogin = function(key) return _G.LunarLoginRuntime.Login(key) end
+    _G.VIPLicenseLogout = function() return _G.LunarLoginRuntime.Logout() end
+    _G.VIPLicenseStatus = function()
+        local l = _G.LunarLoginRuntime
+        return {authorized = l.Authorized, pending = l.Pending, message = l.Status,
+            periodicRecheck = false, expiryCheckPolicy = "login_only", saveOK = not l.Dirty, identityState = l.Diagnostics.Identity}
+    end
 end
+
+-- استدعاء التهيئة
 _VIPLicense_Init()
+
 -- ==============================================================================
 -- ==================== نهاية نظام الترخيص والأكواد =============================
 -- ==============================================================================
+
+-- ==============================================================================
+-- ============================ BẮT ĐẦU CÁC HỆ THỐNG KHÁC =======================
+-- ==============================================================================
+
+-- [جميع الأنظمة الأخرى من BRPlayerCharacterBase.lua الأصلي توضع هنا]
+-- (هذا هو المكان الذي يبدأ فيه كود `_G.StartAdvancedSystems = function(self)`...)
 
 _G.StartAdvancedSystems = function(self)
     -- فحص الكود الجديد
@@ -9712,9 +10476,7 @@ pcall(function()
 end)
 -- next match me: _G.SH_Reattach()
 
--- ========================================================
--- إضافة تحديث واجهة الترخيص (يوضع في نهاية الملف)
--- ========================================================
+-- إضافة تحديث واجهة الترخيص
 local okTicker, ticker = pcall(require, "common.time_ticker")
 if okTicker and ticker and ticker.AddTimer then
     ticker.AddTimer(0.1, function()
